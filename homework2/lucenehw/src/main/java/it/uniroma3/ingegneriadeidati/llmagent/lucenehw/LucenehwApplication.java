@@ -4,22 +4,32 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.ParseException;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.CharArraySet;
 import org.apache.lucene.analysis.core.LowerCaseFilterFactory;
 import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
 import org.apache.lucene.analysis.core.WhitespaceTokenizerFactory;
 import org.apache.lucene.analysis.custom.CustomAnalyzer;
+import org.apache.lucene.analysis.it.ItalianAnalyzer;
+import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
 import org.apache.lucene.analysis.miscellaneous.WordDelimiterGraphFilterFactory;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.StoredField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.StoredFields;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -36,7 +46,7 @@ public class LucenehwApplication {
     @Value("${lucene.index.path}")
     static String luceneIndexPath;
 
-	public static void main(String[] args) {
+    public static void main(String[] args) {
         Path path = Paths.get(System.getProperty("user.dir")).resolve(luceneIndexPath);
         try {
             Directory directory = FSDirectory.open(path);
@@ -52,6 +62,7 @@ public class LucenehwApplication {
             IndexWriter writer = new IndexWriter(directory, config);
 
             writer.addDocument(doc1);
+            writer.addDocument(doc2);
             writer.commit();
 
             Analyzer a = CustomAnalyzer.builder()
@@ -59,8 +70,23 @@ public class LucenehwApplication {
                             .addTokenFilter(LowerCaseFilterFactory.class)
                             .addTokenFilter(WordDelimiterGraphFilterFactory.class)
                             .build();
+            Map<String, Analyzer> perFieldAnalyzers = new HashMap<>();
+            CharArraySet stopWords = new CharArraySet(Arrays.asList("in", "dei", "di"), true);
+            perFieldAnalyzers.put("titolo", new WhitespaceAnalyzer());
+            perFieldAnalyzers.put("contenuto", new StandardAnalyzer(stopWords));
+            Analyzer perFieldAnalyzer = new PerFieldAnalyzerWrapper(new ItalianAnalyzer(), perFieldAnalyzers);
 
             writer.close();
+            IndexReader reader = DirectoryReader.open(directory);
+            IndexSearcher searcher = new IndexSearcher(reader);
+            QueryParser queryParser = new QueryParser("titolo", new WhitespaceAnalyzer());
+            Query query = queryParser.parse("+ingegnere dei +dati");
+            TopDocs hits = searcher.search(query,10);
+            StoredFields storedFields = searcher.storedFields();
+            for(int i=0; i<hits.scoreDocs.length; i++) {
+            ScoreDoc scoreDoc = hits.scoreDocs[i];
+            Document doc = storedFields.document(scoreDoc.doc);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
